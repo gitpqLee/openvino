@@ -33,6 +33,13 @@ struct Variable {
         // to hold compiled once regex for all Variable instances
         const std::regex naming_convention =
             std::regex(R"((past_key_values\.(\d+)\.(key|value))(present\.(\d+)\.(key|value)))");
+        // Hybrid SSM models (e.g. Qwen3.5, Zamba2) use cache_params naming from optimum-intel.
+        // Variable IDs are formed by concatenating input and output tensor names:
+        //   cache_params.past.key.0cache_params.present.key.0
+        //   cache_params.past.conv.5cache_params.present.conv.5
+        //   cache_params.past.ssm.3cache_params.present.ssm.3
+        const std::regex cache_params_convention =
+            std::regex(R"((cache_params\.past\.(key|value|conv|ssm)\.(\d+))(cache_params\.present\.(key|value|conv|ssm)\.(\d+)))");
     };
 
     Variable(const Context& context, const std::string& variable_name) : variable_name(variable_name) {
@@ -46,6 +53,29 @@ struct Variable {
             if (input_index == output_index && input_index.length() <= std::numeric_limits<int>::digits10) {
                 index = std::stoi(input_index) * 2 + int(match[3].str() == "value");  // order key before value
             } else {
+                index = -1;
+            }
+        } else if (std::regex_match(variable_name, match, context.cache_params_convention)) {
+            // Hybrid SSM model: restore past/present naming that downstream NPUW code relies on.
+            // Map cache_params.past.key.N → past_key_values.N.key (standard format)
+            // Map cache_params.present.key.N → present.N.key (standard format)
+            // For conv/ssm states, keep original names since they are not KV cache.
+            const auto& state_type = match[2].str();       // key, value, conv, or ssm
+            const auto& input_index = match[3].str();
+            const auto& output_index = match[6].str();
+            if (state_type == "key" || state_type == "value") {
+                // KV cache states: remap to standard past_key_values/present naming
+                input_name = "past_key_values." + input_index + "." + state_type;
+                output_name = "present." + output_index + "." + state_type;
+                if (input_index == output_index && input_index.length() <= std::numeric_limits<int>::digits10) {
+                    index = std::stoi(input_index) * 2 + int(state_type == "value");
+                } else {
+                    index = -1;
+                }
+            } else {
+                // Conv/SSM states: use cache_params naming so NPUW can distinguish them
+                input_name = match[1].str();   // cache_params.past.conv.N
+                output_name = match[4].str();  // cache_params.present.conv.N
                 index = -1;
             }
         } else {
