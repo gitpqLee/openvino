@@ -13,7 +13,6 @@
 #include "llm_lora_states.hpp"
 #include "llm_prefix_caching.hpp"
 #include "openvino/core/descriptor/output.hpp"
-#include "perf.hpp"
 
 namespace ov {
 namespace npuw {
@@ -103,6 +102,10 @@ protected:
 
     bool m_first_run = true;
 
+    // Indicates whether the model has position_ids input.
+    // Hybrid SSM models (e.g. Qwen3.5) do not have position_ids.
+    bool m_has_position_ids = true;
+
     int64_t m_first_position_id = 0;
 
     uint64_t m_tokens_in_present_chunk = 0;
@@ -123,10 +126,6 @@ protected:
 
     // Support prefix caching
     std::unique_ptr<PrefixCachingHelper> m_prefix_caching_helper;
-
-    // LLM-level profiling for 1st token generation analysis
-    using MS = ov::npuw::perf::metric<ov::npuw::perf::MSec>;
-    ov::npuw::perf::Profile<MS> m_llm_profile;
 
     // Friend declarations for PrefixCachingHelper to access protected members
     friend class PrefixCachingHelper;
