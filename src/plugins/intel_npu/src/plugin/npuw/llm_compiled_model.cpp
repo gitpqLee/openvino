@@ -1140,6 +1140,13 @@ void reshape_to_static(std::shared_ptr<ov::Model> model,
             new_shape = ov::PartialShape({input.get_partial_shape()[0], lora_rank});
         } else if (ov::npuw::util::matchLoRAMatMulBString(input_name)) {
             new_shape = ov::PartialShape({input.get_partial_shape()[0], lora_rank});
+        } else if (input_name.find("cache_params.past.conv") != std::string::npos ||
+                   input_name.find("cache_params.past.ssm") != std::string::npos) {
+            // Hybrid SSM model (e.g. Qwen3.5): conv/ssm states have fixed shapes
+            // except for the batch dimension. Only set batch to 1, keep everything else.
+            const auto& partial_shape = input.get_partial_shape();
+            new_shape = partial_shape;
+            new_shape[kv_axes_position.batch] = 1;
         } else {
             const auto& partial_shape = input.get_partial_shape();
             new_shape = partial_shape;
