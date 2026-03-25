@@ -5,6 +5,7 @@
 
 #include "embedding_infer_request.hpp"
 #include "embedding_model_utils.hpp"
+#include "infer_request_utils.hpp"
 #include "llm_infer_request.hpp"
 #include "logging.hpp"
 #include "low_precision/concat.hpp"
@@ -81,6 +82,12 @@ public:
             auto matched_param = ov::as_type_ptr<ov::op::v0::Parameter>(node_to_output.at(param).get_node_shared_ptr());
             auto matched_node_concat = node_to_output.at(concat).get_node_shared_ptr();
 
+            // Skip fixed-size cache states (conv/ssm) - only remove KV cache parameters
+            const auto& param_name = matched_param->get_friendly_name();
+            if (ov::npuw::util::is_fixed_cache_state(param_name)) {
+                return false;
+            }
+
             ctx.get().old_params.push_back(matched_param);
 
             // Use concat's first input source node to find ShapeOf users.
@@ -100,8 +107,9 @@ public:
             // Find and replace ShapeOf nodes with constants
             for (auto& user : users) {
                 if (ov::is_type<ov::op::v3::ShapeOf>(user)) {
+                    auto param_shape = matched_param->get_shape();
                     auto cst_node =
-                        ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, matched_param->get_shape());
+                        ov::op::v0::Constant::create(ov::element::i64, ov::Shape{param_shape.size()}, param_shape);
                     ov::replace_node(user, cst_node);
                 }
             }
