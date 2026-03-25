@@ -4,6 +4,8 @@
 
 #include "infer_request_utils.hpp"
 
+#include <regex>
+
 #include "logging.hpp"
 #include "openvino/runtime/make_tensor.hpp"  // get_tensor_impl
 #include "util_xarch.hpp"
@@ -207,4 +209,30 @@ void ov::npuw::util::pad_position_ids(const ov::SoPtr<ov::ITensor>& padded_posit
                     position_shape[diff_dim],
                     padded_data + padded_offset + keep_elements);
     }
+}
+
+std::string ov::npuw::util::map_present_to_past_input(const std::string& output_name) {
+    // Hybrid SSM models (e.g. Qwen3.5) use cache_params naming:
+    //   cache_params.present.conv.0 → cache_params.past.conv.0
+    auto pos = output_name.find("cache_params.present.");
+    if (pos != std::string::npos) {
+        std::string input_name = output_name;
+        input_name.replace(pos,
+                           std::string("cache_params.present.").length(),
+                           "cache_params.past.");
+        return input_name;
+    }
+    // Standard KV cache naming:
+    //   present.0.key → past_key_values.0.key
+    return std::regex_replace(output_name, std::regex("present"), "past_key_values");
+}
+
+bool ov::npuw::util::is_fixed_cache_state(const std::string& name) {
+    return name.find("cache_params.") != std::string::npos &&
+           (name.find(".conv.") != std::string::npos || name.find(".ssm.") != std::string::npos);
+}
+
+bool ov::npuw::util::is_past_state_input(const std::string& input_name) {
+    return input_name.find("past_key_values") != std::string::npos ||
+           input_name.find("cache_params.past.") != std::string::npos;
 }

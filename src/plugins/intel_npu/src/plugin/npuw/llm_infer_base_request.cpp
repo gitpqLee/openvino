@@ -20,13 +20,20 @@ void ov::npuw::LLMInferBaseRequest::update_kvcache_for(
     // FIXME: Find only matching by names outputs and copy them, having previously checked that such inputs exist
     for (std::size_t i = layer_ids::kStartOutputKVCacheLayers; i < compiled->outputs().size(); ++i) {
         const auto& output_name = compiled->outputs()[i].get_any_name();
-        const auto& input_name = std::regex_replace(output_name, std::regex("present"), layer_names::past_key_values);
+        const auto& input_name = uu::map_present_to_past_input(output_name);
         if (in_ports.find(input_name) == in_ports.end()) {
-            // FIXME: Totally wrong debug message. input_name is an invalid name of input layer.
             LOG_DEBUG("Input name " << input_name << " doesn't contain kv cache. Skipping.");
             continue;
         }
         auto dst_tensor = request->get_tensor(in_ports.at(input_name));
+
+        // Fixed-size states (conv/ssm) are copied in their entirety each step
+        if (uu::is_fixed_cache_state(output_name)) {
+            auto src_tensor = request->get_tensor(out_ports.at(output_name));
+            src_tensor->copy_to(dst_tensor._ptr);
+            continue;
+        }
+
         const auto& kv_dim = (output_name.find("value") != std::string::npos && v_transposed) ? 3u : kvcache_desc.dim;
         auto dst_slice = uu::make_tensor_slice(dst_tensor,
                                                kv_dim,

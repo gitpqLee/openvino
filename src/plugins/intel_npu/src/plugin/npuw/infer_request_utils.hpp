@@ -43,6 +43,17 @@ std::optional<ov::Output<const ov::Node>> find_port_by_names(const std::vector<o
 
 void pad_position_ids(const ov::SoPtr<ov::ITensor>& padded_position_ids, const ov::SoPtr<ov::ITensor>& position_ids);
 
+// Map a "present" output name to its corresponding "past" input name.
+// Standard KV:       "present.0.key"               → "past_key_values.0.key"
+// Cache params:      "cache_params.present.conv.0"  → "cache_params.past.conv.0"
+std::string map_present_to_past_input(const std::string& output_name);
+
+// Returns true for fixed-size cache states (conv/ssm) that do not grow with sequence length.
+bool is_fixed_cache_state(const std::string& name);
+
+// Returns true if the input name is a past state (either KV cache or cache_params).
+bool is_past_state_input(const std::string& input_name);
+
 }  // namespace util
 }  // namespace npuw
 }  // namespace ov
