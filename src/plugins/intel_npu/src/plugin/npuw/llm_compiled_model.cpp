@@ -2273,6 +2273,23 @@ ov::npuw::LLMCompiledModel::LLMCompiledModel(const std::shared_ptr<ov::Model>& m
         }
     }
 
+    // [QWEN3.5-DEBUG] Dump static models before compilation if requested via environment variable.
+    // Enable by setting env NPUW_LLM_DUMP_DIR=<path>. Uncomment the block below to re-enable.
+    // const char* dump_dir = std::getenv("NPUW_LLM_DUMP_DIR");
+    // if (dump_dir) {
+    //     LOG_INFO("Dumping static LLM models to: " << dump_dir);
+    //     ov::save_model(prefill_model, std::string(dump_dir) + "/prefill_static.xml");
+    //     for (size_t i = 0; i < generate_model_variants.size(); ++i) {
+    //         ov::save_model(generate_model_variants[i],
+    //                        std::string(dump_dir) + "/generate_static_kv" +
+    //                            std::to_string(m_kvcache_sizes[i]) + ".xml");
+    //     }
+    //     if (lm_head_model) {
+    //         ov::save_model(lm_head_model, std::string(dump_dir) + "/lm_head_static.xml");
+    //     }
+    //     LOG_INFO("Static LLM models dumped successfully");
+    // }
+
     // Compile multiple generate model variants with different sizes
     compile_generate_model_variants(generate_model_variants, plugin, generate_config);
 
