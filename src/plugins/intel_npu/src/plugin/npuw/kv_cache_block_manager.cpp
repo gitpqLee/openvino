@@ -39,6 +39,7 @@ KVCacheBlockManager::KVCacheBlockManager(uint32_t block_size,
                     " does not have block_size=",
                     block_size,
                     " in sequence dimension (expected at dim 2 or 3)");
+    seq_dim_ = (base_shape[2] == block_size) ? 2u : 3u;
 
     // Initialize block pool (tensors allocated on-demand, not here)
     blocks_.reserve(max_blocks);
