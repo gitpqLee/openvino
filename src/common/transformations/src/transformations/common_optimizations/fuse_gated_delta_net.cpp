@@ -57,9 +57,7 @@ namespace pattern = ov::pass::pattern;
 namespace v0 = ov::op::v0;
 namespace v1 = ov::op::v1;
 
-namespace {
-
-bool matches_linear_attention_loop(const std::shared_ptr<ov::Node>& node) {
+bool ov::pass::matches_gated_delta_net_loop(const std::shared_ptr<ov::Node>& node) {
     auto loop = ov::as_type_ptr<ov::op::v5::Loop>(node);
     if (!loop) {
         return false;
@@ -127,8 +125,6 @@ bool matches_linear_attention_loop(const std::shared_ptr<ov::Node>& node) {
     }
     return true;
 }
-
-}  // namespace
 
 ov::pass::RemoveConcatSliceAfterLoop::RemoveConcatSliceAfterLoop() {
     auto value = pattern::any_input(pattern::shape_matches("[?, head_num, ?, v_head_size]"));
@@ -220,7 +216,7 @@ ov::pass::FuseGDNLoop::FuseGDNLoop() {
                                                                                        init_state,
                                                                                        pattern::any_input()},
                                                                       [](std::shared_ptr<ov::Node> node) -> bool {
-                                                                          return matches_linear_attention_loop(node);
+                                                                                          return matches_gated_delta_net_loop(node);
                                                                       });
 
     ov::matcher_pass_callback callback = [OV_CAPTURE_CPY_AND_THIS](ov::pass::pattern::Matcher& m) {

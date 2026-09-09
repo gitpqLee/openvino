@@ -9,6 +9,7 @@
 #include "../patterns/avoid.hpp"
 #include "../patterns/compute.hpp"
 #include "../patterns/gqa.hpp"
+#include "../patterns/linear_attention.hpp"
 #include "../patterns/moe.hpp"
 #include "../patterns/sdpa.hpp"
 #include "group.hpp"
@@ -750,6 +751,11 @@ void Snapshot::earlyRegroup() {
         rewr.add_matcher<ov::npuw::patterns::moe::p>(shared_from_this(), isolate.tag); \
         pattern_handled = true;                                                        \
     }
+#define HNDL_LINEAR_ATTN(p)                                                                    \
+    if (isolate.pattern == #p) {                                                               \
+        rewr.add_matcher<ov::npuw::patterns::linear_attn::p>(shared_from_this(), isolate.tag); \
+        pattern_handled = true;                                                                \
+    }
                 HNDL(RMSNorm);
                 HNDL(RMSNorm2);
                 HNDL(RMSNorm3);
@@ -774,6 +780,8 @@ void Snapshot::earlyRegroup() {
                 HNDL_ATTN(QuantizedSDPAWithGlobalMask);
                 HNDL_ATTN(GQA);
                 HNDL_ATTN(SDPACompressed);
+                HNDL_LINEAR_ATTN(LinearAttention);
+#undef HNDL_LINEAR_ATTN
 #undef HNDL_MOE
 #undef HNDL_ATTN
 #undef HNDL_FAKE

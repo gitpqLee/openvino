@@ -107,6 +107,7 @@ static const std::map<std::string, std::string> ISOL_PRESETS = {
     {"ATTN",
      "P:SDPA/attn,P:SDPADecomposed/attn,"
      "P:QuantizedSDPAWithGlobalMask/attn,P:GQA/attn,P:SDPACompressed/attn"},
+    {"LINEAR_ATTN", "P:LinearAttention/linear_attn"},
     {"MOE",
      "P:GPTOSSExpert/expert,P:GPTOSSRouter/router,"
      "P:Qwen3Expert/expert,P:Qwen3Router/router,"

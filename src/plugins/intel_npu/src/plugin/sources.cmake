@@ -183,6 +183,8 @@ set(NPUW_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/npuw/partitioning/patterns/fold_const.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/npuw/partitioning/patterns/gqa.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/npuw/partitioning/patterns/gqa.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/npuw/partitioning/patterns/linear_attention.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/npuw/partitioning/patterns/linear_attention.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/npuw/partitioning/patterns/moe.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/npuw/partitioning/patterns/moe.hpp
     ${CMAKE_CURRENT_SOURCE_DIR}/npuw/partitioning/patterns/opt.cpp

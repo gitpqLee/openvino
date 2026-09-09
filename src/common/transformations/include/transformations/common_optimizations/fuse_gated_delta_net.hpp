@@ -8,6 +8,8 @@
 
 namespace ov::pass {
 
+TRANSFORMATIONS_API bool matches_gated_delta_net_loop(const std::shared_ptr<ov::Node>& node);
+
 /**
  * @ingroup ov_transformation_common_api
  * @brief Remove Concat of Loop
