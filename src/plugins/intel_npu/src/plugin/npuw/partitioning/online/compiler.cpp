@@ -264,12 +264,15 @@ public:
             rep();
             break;
         case Pipeline::REG:
-            warn_unused<::intel_npu::NPUW_ONLINE_ISOLATE>();
-
-            // Only get isolates here.
+            // Keep REG's predefined compute isolates and append user-requested patterns.
+            // This allows model-specific isolation without giving up REG's regularization.
+            {
+                auto user_isolates = std::move(ctx.isolates);
+                ctx.isolates = getComputeIsolates();
+                ctx.isolates.insert(ctx.isolates.end(), user_isolates.begin(), user_isolates.end());
+            }
             // NB: We ignore NO_FOLD everywhere except pipeline COMPUTE - this needs
             // to be aligned in the future
-            ctx.isolates = getComputeIsolates();
             m_snapshot->setCtx(ctx);
             reg();
             break;

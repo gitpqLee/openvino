@@ -5,21 +5,50 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 
+#include "intel_npu/config/config.hpp"
+#include "intel_npu/config/npuw.hpp"
 #include "llm_test_helpers.hpp"
 #include "openvino/core/graph_util.hpp"
 #include "openvino/op/abs.hpp"
 #include "openvino/op/assign.hpp"
 #include "openvino/op/exp.hpp"
 #include "openvino/op/loop.hpp"
+#include "openvino/pass/stateful_to_stateless.hpp"
+#include "partitioning/online/compiler.hpp"
 #include "partitioning/online/group.hpp"
 #include "partitioning/online/snapshot.hpp"
 
 namespace {
+
+::intel_npu::Config make_cfg(const ::intel_npu::Config::ConfigMap& cfg_map) {
+    auto options = std::make_shared<::intel_npu::OptionsDesc>();
+    ::intel_npu::registerNPUWOptions(*options);
+    auto config = ::intel_npu::Config(options);
+    config.update(cfg_map);
+    return config;
+}
+
+void make_stateless_and_static(const std::shared_ptr<ov::Model>& model) {
+    ov::pass::StatefulToStateless().run_on_model(model);
+
+    std::map<std::string, ov::PartialShape> input_shapes;
+    for (const auto& input : model->inputs()) {
+        auto shape = input.get_partial_shape();
+        for (auto& dim : shape) {
+            if (dim.is_dynamic()) {
+                dim = 1;
+            }
+        }
+        input_shapes.emplace(input.get_any_name(), std::move(shape));
+    }
+    model->reshape(input_shapes);
+}
 
 struct OpaqueModel {
     std::shared_ptr<ov::Model> model;
@@ -104,4 +133,27 @@ TEST(LinearAttentionPatternMatcherTest, RejectsMalformedGdnLoopBody) {
     }
 
     EXPECT_TRUE(get_tagged_ops(opaque.model).empty());
+}
+
+TEST(LinearAttentionPatternMatcherTest, CompletesRepPartitioningForStatelessModel) {
+    auto model = ov::test::npuw::build_hybrid_llm_test_model();
+    make_stateless_and_static(model);
+
+    auto config = make_cfg({{"NPUW_ONLINE_PIPELINE", "REP"},
+                            {"NPUW_ONLINE_ISOLATE", "ATTN,LINEAR_ATTN"},
+                            {"NPUW_ONLINE_KEEP_BLOCKS_TAGGED", "attn,linear_attn"}});
+    EXPECT_NO_THROW(ov::npuw::online::buildPartitioning(model, config));
+}
+
+TEST(LinearAttentionPatternMatcherTest, RegPipelineHonorsLinearAttentionIsolation) {
+    auto model = ov::test::npuw::build_hybrid_llm_test_model();
+    make_stateless_and_static(model);
+    auto config = make_cfg({{"NPUW_ONLINE_PIPELINE", "REG"},
+                            {"NPUW_ONLINE_ISOLATE", "LINEAR_ATTN"},
+                            {"NPUW_ONLINE_KEEP_BLOCKS_TAGGED", "linear_attn"}});
+
+    const auto partitioning = ov::npuw::online::buildPartitioning(model, config);
+    EXPECT_TRUE(std::any_of(partitioning.groups.begin(), partitioning.groups.end(), [](const auto& group) {
+        return group.gettag() == "linear_attn";
+    }));
 }
