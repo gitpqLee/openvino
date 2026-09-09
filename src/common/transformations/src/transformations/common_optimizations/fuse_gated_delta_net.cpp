@@ -59,71 +59,67 @@ namespace v1 = ov::op::v1;
 
 bool ov::pass::matches_gated_delta_net_loop(const std::shared_ptr<ov::Node>& node) {
     auto loop = ov::as_type_ptr<ov::op::v5::Loop>(node);
-    if (!loop) {
+    if (!loop || loop->get_input_size() < 9 || loop->get_output_size() != 2) {
         return false;
     }
 
-    if (loop->get_input_size() < 9 || loop->get_output_size() != 2) {
-        return false;
-    }
-
-    auto output_attn_buffer = pattern::any_input(pattern::shape_matches("[?, head_num, ?, v_head_size]"));
-    auto recurrent_state = pattern::any_input(pattern::shape_matches("[?, head_num, k_head_size, v_head_size]"));
-    auto beta = pattern::any_input(pattern::shape_matches("[?, head_num, 1]"));
-    auto gate = pattern::any_input(pattern::shape_matches("[?, head_num, 1]"));
-    auto value = pattern::any_input(pattern::shape_matches("[?, head_num, 1, value_head_size]"));
-    auto key = pattern::any_input(pattern::shape_matches("[?, head_num, 1, k_head_size]"));
-    auto query = pattern::any_input(pattern::shape_matches("[?, head_num, 1, k_head_size]"));
-    auto step_index = pattern::any_input();
-
-    auto step_index_unsqueeze = pattern::wrap_type<v0::Unsqueeze>({step_index, 0});
-    auto gate_f32 = pattern::optional<v0::Convert>({gate});
-
-    auto exp_gate = pattern::wrap_type<v0::Exp>({gate_f32});
-    auto exp_gate_unsqueeze = pattern::wrap_type<v0::Unsqueeze>({exp_gate, {-1}});
-    auto gated_state = pattern::wrap_type<v1::Multiply>({recurrent_state, exp_gate_unsqueeze});
-
-    auto key_squeezed = pattern::wrap_type<v0::Squeeze>({key, {2}});
-    auto key_unsqueeze = pattern::wrap_type<v0::Unsqueeze>({key_squeezed, {-1}});
-
-    auto value_squeezed = pattern::wrap_type<v0::Squeeze>({value, {2}});
-
-    auto projected_value = pattern::wrap_type<v1::Multiply>({gated_state, key_unsqueeze});
-    auto projected_sum = pattern::wrap_type<v1::ReduceSum>({projected_value, {-2}}, {{"keep_dims", false}});
-    auto delta = pattern::wrap_type<v1::Subtract>({value_squeezed, projected_sum});
-
-    auto scaled_delta = pattern::wrap_type<v1::Multiply>({delta, beta});
-    auto scaled_delta_unsqueeze = pattern::wrap_type<v0::Unsqueeze>({scaled_delta, {-2}});
-    auto outer_update = pattern::wrap_type<v1::Multiply>({key_unsqueeze, scaled_delta_unsqueeze});
-    auto updated_state = pattern::wrap_type<v1::Add>({gated_state, outer_update});
-
-    auto query_squeezed = pattern::wrap_type<v0::Squeeze>({query, 2});
-    auto query_unsqueeze = pattern::wrap_type<v0::Unsqueeze>({query_squeezed, {-1}});
-    auto weighted_output = pattern::wrap_type<v1::Multiply>({updated_state, query_unsqueeze});
-
-    auto output_reduce_sum = pattern::wrap_type<v1::ReduceSum>({weighted_output, {-2}}, {{"keep_dims", true}});
-    auto output_reduce_sum_fp16 = pattern::optional<v0::Convert>({output_reduce_sum});
-    auto scatter_update_output = pattern::wrap_type<ov::op::v3::ScatterUpdate>(
-        {output_attn_buffer, step_index_unsqueeze, output_reduce_sum_fp16, 2});
-    auto output_result = pattern::wrap_type<v0::Result>({scatter_update_output});
-
-    auto updated_state_fp16 = pattern::optional<v0::Convert>({updated_state});
-    auto state_result = pattern::wrap_type<v0::Result>({updated_state_fp16});
-
-    ov::pass::pattern::Matcher loop_output_matcher(output_result);
-    ov::pass::pattern::Matcher loop_state_matcher(state_result);
     auto body = loop->get_function();
+    if (!body || body->get_results().size() < 3) {
+        return false;
+    }
     const auto& body_results = body->get_results();
 
-    // match output
-    if (!loop_output_matcher.match(body_results[2]->output(0))) {
+    auto source = [](const std::shared_ptr<ov::Node>& current, size_t index) -> std::shared_ptr<ov::Node> {
+        if (!current || index >= current->get_input_size()) {
+            return {};
+        }
+        return current->get_input_node_shared_ptr(index);
+    };
+    auto strip_convert = [&source](std::shared_ptr<ov::Node> current) {
+        return ov::is_type<v0::Convert>(current) ? source(current, 0) : current;
+    };
+    auto has_input = [](const std::shared_ptr<ov::Node>& current, const std::shared_ptr<ov::Node>& expected) {
+        if (!current) {
+            return false;
+        }
+        for (const auto& input : current->input_values()) {
+            if (input.get_node_shared_ptr() == expected) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    auto updated_state = strip_convert(source(body_results[1], 0));
+    auto scatter = source(body_results[2], 0);
+    if (!ov::is_type<v1::Add>(updated_state) || !ov::is_type<ov::op::v3::ScatterUpdate>(scatter)) {
         return false;
     }
-    // match state
-    if (!loop_state_matcher.match(body_results[1]->output(0))) {
+
+    auto output_sum = strip_convert(source(scatter, 2));
+    auto weighted_output = source(output_sum, 0);
+    if (!ov::is_type<v1::ReduceSum>(output_sum) || !ov::is_type<v1::Multiply>(weighted_output) ||
+        !has_input(weighted_output, updated_state)) {
         return false;
     }
-    return true;
+
+    for (const auto& state_input : updated_state->input_values()) {
+        auto gated_state = state_input.get_node_shared_ptr();
+        if (!ov::is_type<v1::Multiply>(gated_state)) {
+            continue;
+        }
+        for (const auto& gated_input : gated_state->input_values()) {
+            auto gate_unsqueeze = gated_input.get_node_shared_ptr();
+            if (!ov::is_type<v0::Unsqueeze>(gate_unsqueeze)) {
+                continue;
+            }
+            auto exp_gate = source(gate_unsqueeze, 0);
+            if (ov::is_type<v0::Exp>(exp_gate) && ov::is_type<v0::Parameter>(strip_convert(source(exp_gate, 0)))) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 ov::pass::RemoveConcatSliceAfterLoop::RemoveConcatSliceAfterLoop() {

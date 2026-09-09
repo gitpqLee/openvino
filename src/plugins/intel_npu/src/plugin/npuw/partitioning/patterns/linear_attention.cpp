@@ -98,10 +98,16 @@ void collect_connected_state_branch(const std::shared_ptr<ov::Node>& assign, Nod
 
 LinearAttention::LinearAttention(const std::shared_ptr<ov::npuw::online::Snapshot>& snapshot,
                                  const std::string& isol_tag) {
-    auto recurrent_core = opp::wrap_type<ov::op::v5::Loop>([](const ov::Output<ov::Node>& output) {
-        return ov::pass::matches_gated_delta_net_loop(output.get_node_shared_ptr());
-    });
     auto node_to_group = snapshot->getNodeToGroupMap();
+    auto matching_cores = std::make_shared<NodeSet>();
+    for (const auto& [node, group] : *node_to_group) {
+        if (ov::pass::matches_gated_delta_net_loop(node)) {
+            matching_cores->insert(node);
+        }
+    }
+    auto recurrent_core = opp::wrap_type<ov::op::v5::Loop>([matching_cores](const ov::Output<ov::Node>& output) {
+        return matching_cores->count(output.get_node_shared_ptr()) != 0;
+    });
 
     auto callback = [=](ov::pass::pattern::Matcher& matcher) {
         const auto core = matcher.get_match_root();
